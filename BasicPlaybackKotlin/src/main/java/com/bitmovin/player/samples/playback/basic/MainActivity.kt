@@ -4,9 +4,13 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.source.SourceConfig
+import com.bitmovin.player.api.media.thumbnail.ThumbnailTrack
+import com.bitmovin.player.api.source.SourceType
 import kotlinx.android.synthetic.main.activity_main.*
 
-private const val Sintel = "https://bitdash-a.akamaihd.net/content/sintel/sintel.mpd"
+private const val Sintel = "https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/sprites_1/manifest.m3u8"
+
+private const val thumbnailTrack1 = "https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/sprites_1/h264_360_450000/fmp4/seek-images.vtt"
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,6 +51,13 @@ class MainActivity : AppCompatActivity() {
     private fun initializePlayer() {
         player = Player.create(this).also { playerView.player = it }
 
-        player.load(SourceConfig.fromUrl(Sintel))
+        var thumbnailTrack = ThumbnailTrack(thumbnailTrack1)
+        var sourceConfig = SourceConfig(
+                url = Sintel,
+                type = SourceType.Hls,
+                thumbnailTrack = thumbnailTrack)
+
+        player.load(sourceConfig)
+
     }
 }
