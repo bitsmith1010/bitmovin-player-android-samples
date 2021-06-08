@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.source.SourceConfig
 import kotlinx.android.synthetic.main.activity_main.*
+import com.bitmovin.player.api.source.SourceType
 
 private const val Sintel = "https://bitdash-a.akamaihd.net/content/sintel/sintel.mpd"
 
@@ -47,6 +48,17 @@ class MainActivity : AppCompatActivity() {
     private fun initializePlayer() {
         player = Player.create(this).also { playerView.player = it }
 
-        player.load(SourceConfig.fromUrl(Sintel))
+        var metadata : Map<String,String> = mapOf(
+                "key1" to "value1",
+                "key2" to "value2"
+        )
+
+        var sourceConfig = SourceConfig(
+                url = Sintel,
+                type = SourceType.Dash,
+                metadata = metadata
+        )
+
+        player.load(sourceConfig)
     }
 }
