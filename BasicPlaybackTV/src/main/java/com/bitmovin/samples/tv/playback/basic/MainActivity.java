@@ -11,6 +11,7 @@ import com.bitmovin.player.PlayerView;
 import com.bitmovin.player.api.PlaybackConfig;
 import com.bitmovin.player.api.Player;
 import com.bitmovin.player.api.PlayerConfig;
+import com.bitmovin.player.api.drm.WidevineConfig;
 import com.bitmovin.player.api.event.EventListener;
 import com.bitmovin.player.api.event.PlayerEvent;
 import com.bitmovin.player.api.event.SourceEvent;
@@ -48,6 +49,11 @@ public class MainActivity extends AppCompatActivity {
         // Create a new SourceItem. In this case we are loading a DASH source.
         String sourceURL = "https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd";
         SourceConfig sourceConfig = new SourceConfig(sourceURL, SourceType.Dash);
+
+        // Attach DRM handling to the source config
+        sourceConfig.setDrmConfig(
+                new WidevineConfig(
+                        "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aY8AAAAAAGDbgukFZnq7kPz_uvhpeNdz6EI0EttZITk4IoA5SJRxEpmi1-wmaodDzksaysbZN-B9h84fk-j6ZEhJfcqMp2-HpwWdH2h1qpufQspnfEi8AHEDyySkramZ3yDZNnUr82UYV6GTfPvqFIyuL-O4wk3LFLO2xA"));
 
         player.load(sourceConfig);
     }
