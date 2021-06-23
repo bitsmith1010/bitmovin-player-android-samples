@@ -8,9 +8,13 @@ import com.bitmovin.player.api.PlaybackConfig
 import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.PlayerConfig
 import com.bitmovin.player.api.deficiency.ErrorEvent
+import com.bitmovin.player.api.drm.DrmConfig
+import com.bitmovin.player.api.drm.WidevineConfig
 import com.bitmovin.player.api.event.PlayerEvent
 import com.bitmovin.player.api.event.SourceEvent
 import com.bitmovin.player.api.event.on
+import com.bitmovin.player.api.network.NetworkConfig
+import com.bitmovin.player.api.network.PreprocessHttpRequestCallback
 import com.bitmovin.player.api.source.SourceConfig
 import com.bitmovin.player.api.source.SourceType
 import com.bitmovin.player.api.ui.StyleConfig
@@ -35,15 +39,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initializePlayer() {
+        var playerConfig = PlayerConfig().apply {
+            networkConfig = NetworkConfig().apply {
+                preprocessHttpRequestCallback =
+                        PreprocessHttpRequestCallback { type, request ->
+                            if (type.toString().contains("drm")) {
+                            Log.d("BasicPlaybackTvKotlin", "> REQUEST type:$type url:${request.url}")
+                            }
+                            return@PreprocessHttpRequestCallback null
+                        }
+            }
+        }
+
         // Initialize PlayerView from layout and attach a new Player instance
-        player = Player.create(this, createPlayerConfig()).also {
+        player = Player.create(this, playerConfig).also {
             bitmovinPlayerView.player = it
         }
 
         // Create a new SourceConfig. In this case we are loading a DASH source.
-        val sourceURL = "https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd"
+        //val sourceURL = "https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd"
 
-        player.load(SourceConfig(sourceURL, SourceType.Dash))
+        val sourceURL = "https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Tue_Jun_08_20%3A55%3A49_EDT_2021/manifest.mpd"
+
+        val sourceConfig = SourceConfig(sourceURL, SourceType.Dash)
+
+        // Attach DRM handling to the source config
+        sourceConfig.drmConfig =
+                WidevineConfig(
+                        "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aUcAAAAAAGAqpI7ES53mc2kh1nqJqsya6JzRVVjngGFe2pAx8jp7RkWOVSscG28NRITIN5dTXBddlMfFxsmMbZkm4UTLOT2lIRXmaFvUP_gpJFTQ54JV8b89N3iq56ypZPcg9FDVipTgsZ-ndHNd7dX7iuxIcyc8d-BV_A")
+
+        player.load(sourceConfig)
+        player.mute()
     }
 
     override fun onResume() {
