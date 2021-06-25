@@ -10,10 +10,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8.toString()
+    }
     defaultConfig {
         applicationId "com.bitmovin.player.samples.custom.ui.subtitleview"
         minSdkVersion rootProject.minSdkVersion
-        targetSdkVersion rootProject.targetSdkVersion
+        targetSdkVersion 21
+        multiDexEnabled true
         versionCode 1
         versionName "1.0"
     }
@@ -32,4 +36,7 @@ dependencies {
     implementation supportDependencies.appCompat
     implementation bitmovinPlayerDependencies.bitmovinPlayer
     implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
+    implementation supportDependencies.gson
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.0'
+    implementation "androidx.multidex:multidex:2.0.1"
 }
