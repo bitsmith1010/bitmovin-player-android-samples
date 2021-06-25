@@ -9,11 +9,6 @@ import com.bitmovin.player.PlayerView
 import com.bitmovin.player.SubtitleView
 import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.PlayerConfig
-import com.bitmovin.player.api.event.SourceEvent
-import com.bitmovin.player.api.event.on
-import com.bitmovin.player.api.metadata.emsg.EventMessage
-import com.bitmovin.player.api.metadata.id3.Id3Frame
-import com.bitmovin.player.api.metadata.scte.ScteMessage
 import com.bitmovin.player.api.network.*
 import com.bitmovin.player.api.source.SourceConfig
 import com.bitmovin.player.api.source.SourceType
@@ -44,18 +39,6 @@ class MainActivity : AppCompatActivity() {
 
         var playerConfig = PlayerConfig().apply {
             networkConfig = NetworkConfig().apply {
-                preprocessHttpRequestCallback =
-                        PreprocessHttpRequestCallback { type, request ->
-                            if (type == HttpRequestType.MediaSubtitles) {
-                            Log.i(
-                                    this.javaClass.name.toString(),
-                                    "--- REQUEST type:$type url:${request.url}")
-                            }
-                            return@PreprocessHttpRequestCallback null
-                        }
-
-
-
                 preprocessHttpResponseCallback = object :
                         PreprocessHttpResponseCallback {
                     override fun preprocessHttpResponse(
@@ -72,19 +55,14 @@ class MainActivity : AppCompatActivity() {
                         return null
                     }
                 }
-
-
-
             }
-         }
+        }
 
         // Creating a PlayerView and get it's Player instance.
         playerView = PlayerView(this, Player.create(this, playerConfig)).apply {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
         player = playerView.player!!
-
-        player.on(::onSubtitleAdded)
 
         player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
 
@@ -103,7 +81,7 @@ class MainActivity : AppCompatActivity() {
             var intervalCounter = 0
             var timeout = 1000
             var subtitleIndex = 1
-            var subtitleId : String
+            var subtitleId: String
             var intervalMs: Long = 100
             setInterval(intervalMs) {
                 if (subtitleIndex < player.availableSubtitles.size) {
@@ -133,8 +111,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             }
-                              }, 2000)
-
+        }, 2000)
 
         // Setup minimalistic controls for the player
         playerControls.setPlayer(player)
@@ -168,31 +145,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         playerView.onDestroy()
-        player.off(::onSubtitleAdded)
         super.onDestroy()
-    }
-
-    private fun logMetadata(metadata: com.bitmovin.player.api.metadata.Metadata, type: String) {
-        when (type) {
-            ScteMessage.TYPE -> (0 until metadata.length())
-                    .map { metadata.get(it) as ScteMessage }
-                    .forEach { Log.d("METADATA", "SCTE: " + gson.toJson(it)) }
-            Id3Frame.TYPE -> (0 until metadata.length())
-                    .map { metadata.get(it) as Id3Frame }
-                    .forEach { Log.d("METADATA", "ID3Frame: " + gson.toJson(it)) }
-            EventMessage.TYPE -> (0 until metadata.length())
-                    .map { metadata.get(it) as EventMessage }
-                    .forEach { Log.d("METADATA", "EMSG: " + gson.toJson(it)) }
-        }
-    }
-
-    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded)
-    {
-        Log.i(
-                this.javaClass.name.toString(),
-                "--- Available subtitles on player load:" +
-                        player.availableSubtitles[0].toString()
-        )
     }
 
     fun setInterval(timeMillis: Long, handler: () -> Unit) = GlobalScope.launch {
@@ -201,5 +154,4 @@ class MainActivity : AppCompatActivity() {
             handler()
         }
     }
-
 }
