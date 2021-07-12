@@ -9,7 +9,9 @@ import com.bitmovin.player.PlayerView
 import com.bitmovin.player.SubtitleView
 import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.PlayerConfig
+import com.bitmovin.player.api.event.SourceEvent
 import com.bitmovin.player.api.network.*
+import com.bitmovin.player.api.source.Source
 import com.bitmovin.player.api.source.SourceConfig
 import com.bitmovin.player.api.source.SourceType
 import com.bitmovin.player.api.ui.StyleConfig
@@ -66,6 +68,8 @@ class MainActivity : AppCompatActivity() {
 
         player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
 
+        //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/siden-13.mpd", SourceType.Dash))
+
         // Creating a SubtitleView and assign the current player instance.
         subtitleView = SubtitleView(this)
         subtitleView.setPlayer(player)
@@ -109,7 +113,6 @@ class MainActivity : AppCompatActivity() {
                     }
                     intervalCounter++
                 }
-
             }
         }, 2000)
 
@@ -146,6 +149,21 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         playerView.onDestroy()
         super.onDestroy()
+    }
+
+    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded)
+    {
+        Log.i(this.javaClass.name.toString(),
+                "--- on subtitle added: " +
+                        event.subtitleTrack.id)
+    }
+
+    private fun onLoadedEvent(event: SourceEvent.Loaded)
+    {
+        Log.i(this.javaClass.name.toString(),
+                "--- on source load, number of subtitles: " +
+                        player.availableSubtitles.size.toString() +
+                " " + event.source.loadingState.toString())
     }
 
     fun setInterval(timeMillis: Long, handler: () -> Unit) = GlobalScope.launch {
