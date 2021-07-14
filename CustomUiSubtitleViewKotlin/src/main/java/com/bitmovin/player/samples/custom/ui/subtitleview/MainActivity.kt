@@ -1,7 +1,6 @@
 package com.bitmovin.player.samples.custom.ui.subtitleview
 
 import android.os.Bundle
-import android.os.Handler
 import android.util.Log
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
@@ -11,21 +10,21 @@ import com.bitmovin.player.api.Player
 import com.bitmovin.player.api.PlayerConfig
 import com.bitmovin.player.api.event.SourceEvent
 import com.bitmovin.player.api.network.*
-import com.bitmovin.player.api.source.Source
 import com.bitmovin.player.api.source.SourceConfig
 import com.bitmovin.player.api.source.SourceType
 import com.bitmovin.player.api.ui.StyleConfig
 import kotlinx.android.synthetic.main.activity_main.*
 import com.google.gson.Gson
 import kotlinx.coroutines.*
+import java.util.Queue
+import java.util.LinkedList
 import java.util.concurrent.Future
 
 class MainActivity : AppCompatActivity() {
     private lateinit var player: Player
     private lateinit var playerView: PlayerView
     private lateinit var subtitleView: SubtitleView
-    private val gson: Gson = Gson()
-    private var subtitleResponseRegistered = false
+    private val subtitlesQueue: Queue<String> = LinkedList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,19 +40,40 @@ class MainActivity : AppCompatActivity() {
 
         var playerConfig = PlayerConfig().apply {
             networkConfig = NetworkConfig().apply {
+                preprocessHttpRequestCallback =
+                        PreprocessHttpRequestCallback { type, request ->
+                            if (type == HttpRequestType.MediaSubtitles) {
+                                var subtitleUrl = request.url
+                                Log.i(this.javaClass.name.toString(),
+                                        "---http request prepared, subtitle " +
+                                        "id: ${subtitlesQueue.poll()}, url: ${request.url}")
+
+                                // todo: async http request to subtitle url
+
+                                player.setSubtitle(
+                                        subtitlesQueue.peek())
+                            }/* else if (type == HttpRequestType.Unknown) {
+                                Log.i(this.javaClass.name.toString(),
+                                "http request, type:$type url:${request.url}")
+                            } else {
+                                Log.i(this.javaClass.name.toString(),
+                                "http request, type:$type")
+                            }*/
+
+                            //todo: cancel original http request?
+                            return@PreprocessHttpRequestCallback null
+                        }
                 preprocessHttpResponseCallback = object :
                         PreprocessHttpResponseCallback {
                     override fun preprocessHttpResponse(
                             type: HttpRequestType,
                             response: HttpResponse
                     ): Future<HttpResponse>? {
-                        if (type == HttpRequestType.MediaSubtitles) {
-                            Log.d(
-                                    "BasicPlayback",
-                                    "--- RESPONSE type:$type status:${response.status} url:${response.url}"
+                        if (type == HttpRequestType.MediaSubtitles)
+                            Log.i(
+                                    this.javaClass.name.toString(),
+                                    "---response type:$type status:${response.status} url:${response.url}"
                             )
-                            subtitleResponseRegistered = true
-                        }
                         return null
                     }
                 }
@@ -66,55 +86,15 @@ class MainActivity : AppCompatActivity() {
         }
         player = playerView.player!!
 
-        player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
+        player.on(SourceEvent.SubtitleAdded::class, ::onSubtitleAdded)
 
-        //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/siden-13.mpd", SourceType.Dash))
+        //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
+
+        player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/siden-13.mpd", SourceType.Dash))
 
         // Creating a SubtitleView and assign the current player instance.
         subtitleView = SubtitleView(this)
         subtitleView.setPlayer(player)
-
-        // todo - in place of delay, find an event that signals
-        //   that availableSubtitles is ready
-        Handler().postDelayed({
-            Log.i(
-                    this.javaClass.name.toString(),
-                    "--- After delay: " +
-                            "number of subtitleId tracks: " +
-                            player.availableSubtitles.size.toString())
-            var intervalCounter = 0
-            var timeout = 1000
-            var subtitleIndex = 1
-            var subtitleId: String
-            var intervalMs: Long = 100
-            setInterval(intervalMs) {
-                if (subtitleIndex < player.availableSubtitles.size) {
-                    subtitleId = player.availableSubtitles[subtitleIndex].id
-                    when {
-                        intervalCounter == 1 -> {
-                            player.setSubtitle(subtitleId)
-                        }
-                        subtitleResponseRegistered -> {
-                            Log.i(
-                                    this.javaClass.name.toString(),
-                                    "--- Request sent for: $subtitleId")
-                            intervalCounter = 0
-                            subtitleResponseRegistered = false
-                            subtitleIndex++
-                        }
-                        intervalCounter > timeout / intervalMs -> {
-                            Log.i(
-                                    this.javaClass.name.toString(),
-                                    "--- NO RESPONSE: REMOVE $subtitleId")
-                            player.removeSubtitle(subtitleId)
-                            subtitleResponseRegistered = false
-                            intervalCounter = 0
-                        }
-                    }
-                    intervalCounter++
-                }
-            }
-        }, 2000)
 
         // Setup minimalistic controls for the player
         playerControls.setPlayer(player)
@@ -151,25 +131,14 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded)
+    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded? = null)
     {
+        subtitlesQueue.add(event?.subtitleTrack?.id)
+        if (subtitlesQueue.size.equals(1)) {
+            player.setSubtitle(event?.subtitleTrack?.id)
+        }
         Log.i(this.javaClass.name.toString(),
                 "--- on subtitle added: " +
-                        event.subtitleTrack.id)
-    }
-
-    private fun onLoadedEvent(event: SourceEvent.Loaded)
-    {
-        Log.i(this.javaClass.name.toString(),
-                "--- on source load, number of subtitles: " +
-                        player.availableSubtitles.size.toString() +
-                " " + event.source.loadingState.toString())
-    }
-
-    fun setInterval(timeMillis: Long, handler: () -> Unit) = GlobalScope.launch {
-        while (true) {
-            delay(timeMillis)
-            handler()
-        }
+                        event?.subtitleTrack?.id)
     }
 }
