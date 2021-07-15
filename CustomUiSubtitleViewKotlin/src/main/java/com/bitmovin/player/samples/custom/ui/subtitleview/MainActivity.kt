@@ -14,10 +14,11 @@ import com.bitmovin.player.api.source.SourceConfig
 import com.bitmovin.player.api.source.SourceType
 import com.bitmovin.player.api.ui.StyleConfig
 import kotlinx.android.synthetic.main.activity_main.*
-import com.google.gson.Gson
 import kotlinx.coroutines.*
-import java.util.Queue
-import java.util.LinkedList
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.IOException
+import java.util.*
 import java.util.concurrent.Future
 
 class MainActivity : AppCompatActivity() {
@@ -25,6 +26,41 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playerView: PlayerView
     private lateinit var subtitleView: SubtitleView
     private val subtitlesQueue: Queue<String> = LinkedList()
+    private var subtitlesOffTrack = ""
+
+    var client = OkHttpClient()
+
+    private fun verifySubtitle(url: String, id: String) {
+        val thread = Thread {
+            Log.i(this.javaClass.toString(), "---verify $url $id")
+            val code = httpResponseCode(url)
+            if (code >= 400) {
+                Log.i(this.javaClass.toString(),
+                        "---received error code $code for subtitle $url, id $id - track will be removed")
+                try {player.removeSubtitle(id)}
+                catch (err: NoSuchElementException) {
+                    Log.e(this.javaClass.toString(), "---subtitle with id $id not found")
+                }
+            }
+            else
+                Log.i(this.javaClass.toString(),
+                "---subtitle $url, id $id access: success")
+        }
+        thread.start()
+    }
+
+    // todo: follow redirects
+    private fun httpResponseCode(url: String): Int {
+        val request = Request.Builder()
+                .url(url)
+                .build()
+        return try {
+            val response = client.newCall(request).execute()
+            response.code
+        } catch (err: IOException) {
+            throw IOException(err.message)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,40 +79,32 @@ class MainActivity : AppCompatActivity() {
                 preprocessHttpRequestCallback =
                         PreprocessHttpRequestCallback { type, request ->
                             if (type == HttpRequestType.MediaSubtitles) {
-                                var subtitleUrl = request.url
-                                Log.i(this.javaClass.name.toString(),
-                                        "---http request prepared, subtitle " +
-                                        "id: ${subtitlesQueue.poll()}, url: ${request.url}")
+                                player.setSubtitle(subtitlesOffTrack)
+                                val url = request.url
+                                /* todo: to protect subtitlesQueue from
+                                 * concurrent access until
+                                 * the `pop()` and `setSubtitle()` methods
+                                 * return - the queue could be accessed from the
+                                 * `subtitleAdded` listener also.
+                                 */
+                                // `remove()` is `pop()`
+                                val id = subtitlesQueue.remove()
 
-                                // todo: async http request to subtitle url
+                                player.setSubtitle(subtitlesOffTrack)
 
-                                player.setSubtitle(
-                                        subtitlesQueue.peek())
-                            }/* else if (type == HttpRequestType.Unknown) {
                                 Log.i(this.javaClass.name.toString(),
-                                "http request, type:$type url:${request.url}")
-                            } else {
-                                Log.i(this.javaClass.name.toString(),
-                                "http request, type:$type")
-                            }*/
+                                        "---http request object received for subtitle id: $id, url: $url")
 
+                                // concurrent http request:
+                                verifySubtitle(url, id)
+
+                                if (subtitlesQueue.size != 0)
+                                    // `element()` is `read()`
+                                    player.setSubtitle(subtitlesQueue.element())
+                            }
                             //todo: cancel original http request?
                             return@PreprocessHttpRequestCallback null
                         }
-                preprocessHttpResponseCallback = object :
-                        PreprocessHttpResponseCallback {
-                    override fun preprocessHttpResponse(
-                            type: HttpRequestType,
-                            response: HttpResponse
-                    ): Future<HttpResponse>? {
-                        if (type == HttpRequestType.MediaSubtitles)
-                            Log.i(
-                                    this.javaClass.name.toString(),
-                                    "---response type:$type status:${response.status} url:${response.url}"
-                            )
-                        return null
-                    }
-                }
             }
         }
 
@@ -86,11 +114,16 @@ class MainActivity : AppCompatActivity() {
         }
         player = playerView.player!!
 
+        subtitlesOffTrack = player.availableSubtitles[0].id
+        player.setSubtitle(subtitlesOffTrack)
+
         player.on(SourceEvent.SubtitleAdded::class, ::onSubtitleAdded)
+
+        player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.mpd", SourceType.Dash))
 
         //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
 
-        player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/siden-13.mpd", SourceType.Dash))
+        //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/siden-13.mpd", SourceType.Dash))
 
         // Creating a SubtitleView and assign the current player instance.
         subtitleView = SubtitleView(this)
@@ -104,6 +137,8 @@ class MainActivity : AppCompatActivity() {
 
         // Add the PlayerView to the layout as first position (so it is the behind the SubtitleView)
         playerContainer.addView(playerView, 0)
+
+
     }
 
     override fun onStart() {
@@ -131,14 +166,15 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded? = null)
-    {
-        subtitlesQueue.add(event?.subtitleTrack?.id)
-        if (subtitlesQueue.size.equals(1)) {
-            player.setSubtitle(event?.subtitleTrack?.id)
-        }
-        Log.i(this.javaClass.name.toString(),
-                "--- on subtitle added: " +
-                        event?.subtitleTrack?.id)
+    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded? = null) {
+        val id = event?.subtitleTrack?.id
+        /* todo: protect the queue from concurrent access by the http
+         * request event handler
+         */
+        subtitlesQueue.add(id)
+        if (subtitlesQueue.size == 1) player.setSubtitle(id)
+        Log.i(
+                this.javaClass.name.toString(),
+                "---subtitle added: $id")
     }
 }
