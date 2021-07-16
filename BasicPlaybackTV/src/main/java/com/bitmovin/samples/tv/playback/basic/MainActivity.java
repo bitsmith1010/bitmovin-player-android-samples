@@ -26,6 +26,12 @@ public class MainActivity extends AppCompatActivity {
 
     private PlayerView playerView;
     private Player player;
+    private int count;
+    private String[] drm_url = {
+            "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aTsAAAAAAGCbzv_RJAtz7_X6yhdMdQgRqywZdzNIExydDfWnJtkIgP6acgHFUbnileD1fdiY_4z5pe-WYT267aSMQnyc9HF9-M3LMY5I_uVoFrJidPOBv0_oxWM4xSW1XFS2Ms6Zf3vq5DhxhfdWoUteX1VJjQtGgtR3Mw",
+            "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aYEAAAAAAGCkDn8XRO-c1qrrcIW-gXJ0GWVDsjFlQZNpDPH0LH3lgVp1j5T8PJIdKIodV7Z_1NrrMVuFa3CBRrxwWB15zkLPEyftEoGRUBhUqpJ90R_-Y3R3T_lDNSMIemBeJ8A_ZDEzLf7BfE-AY6UrOMtzHr6ILrt1Mg",
+            "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aUgAAAAAAGDX09Eo-h8oavVxzofu9sYzs2gjHS0V9QWG_KGIVBMbrv6c30hCZdGM3OCb2cbbwziE06g0tJpSCxNHxDED8qCMD24Irw1ruraUTA3NU1xCeaEuHRZ4TvtMTdOBPdn6YCOKJXOeYZWzQSGJimPmPO3T8pkiJA"
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,28 +41,26 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(R.layout.activity_main);
 
-        initializePlayer();
+        initializePlayer(1);
+
     }
 
-    private void initializePlayer() {
+    private void initializePlayer(int id) {
         // Initialize BitmovinPlayerView from layout
         playerView = findViewById(R.id.bitmovin_player_view);
 
         player = Player.create(this, createPlayerConfig());
 
+
+        player.on(PlayerEvent.Paused.class, onPausedListener);
+        //player.on(PlayerEvent.Destroy.class, onDestroyListener);
+
         playerView.setPlayer(player);
 
-        // Create a new SourceItem. In this case we are loading a DASH source.
-        String sourceURL = "https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd";
-        SourceConfig sourceConfig = new SourceConfig(sourceURL, SourceType.Dash);
-
-        // Attach DRM handling to the source config
-        sourceConfig.setDrmConfig(
-                new WidevineConfig(
-                        "https://wv.test.expressplay.com/hms/wv/rights/?ExpressPlayToken=BQAAAw72aY8AAAAAAGDbgukFZnq7kPz_uvhpeNdz6EI0EttZITk4IoA5SJRxEpmi1-wmaodDzksaysbZN-B9h84fk-j6ZEhJfcqMp2-HpwWdH2h1qpufQspnfEi8AHEDyySkramZ3yDZNnUr82UYV6GTfPvqFIyuL-O4wk3LFLO2xA"));
-
-        player.load(sourceConfig);
+        loadNewSource(1);
     }
+    private final EventListener<PlayerEvent.Paused> onPausedListener = paused -> loadNewSource((++count) % 3);
+
 
     private PlayerConfig createPlayerConfig() {
         // Creating a new PlayerConfig
@@ -196,5 +200,18 @@ public class MainActivity extends AppCompatActivity {
 
     private final EventListener<SourceEvent.Error> onSourceError = errorEvent ->
             Log.e(TAG, "A source error occurred (" + errorEvent.getCode() + "): " + errorEvent.getMessage());
+
+    private void loadNewSource(int id)
+    {
+        // Create a new SourceItem. In this case we are loading a DASH source.
+        String sourceURL = String.format("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/tests-encoding/cenc%d/manifest.mpd", id + 1);
+
+        SourceConfig sourceConfig = new SourceConfig(sourceURL, SourceType.Dash);
+
+        // Attach DRM handling to the source config
+        sourceConfig.setDrmConfig(new WidevineConfig(drm_url[id]));
+
+        player.load(sourceConfig);
+    }
 
 }
