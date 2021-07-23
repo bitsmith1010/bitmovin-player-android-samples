@@ -15,56 +15,32 @@ import com.bitmovin.player.api.source.SourceType
 import com.bitmovin.player.api.ui.StyleConfig
 import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.util.*
-import java.util.concurrent.Future
+import kotlin.coroutines.CoroutineContext
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), CoroutineScope {
+    private lateinit var job0: Job
+    override val coroutineContext: CoroutineContext
+        get() = job0 + Dispatchers.Main
     private lateinit var player: Player
     private lateinit var playerView: PlayerView
     private lateinit var subtitleView: SubtitleView
+    private val lockCollection = Mutex()
     private val subtitlesQueue: Queue<String> = LinkedList()
     private var subtitlesOffTrack = ""
 
     var client = OkHttpClient()
 
-    private fun verifySubtitle(url: String, id: String) {
-        val thread = Thread {
-            Log.i(this.javaClass.toString(), "---verify $url $id")
-            val code = httpResponseCode(url)
-            if (code >= 400) {
-                Log.i(this.javaClass.toString(),
-                        "---received error code $code for subtitle $url, id $id - track will be removed")
-                try {player.removeSubtitle(id)}
-                catch (err: NoSuchElementException) {
-                    Log.e(this.javaClass.toString(), "---subtitle with id $id not found")
-                }
-            }
-            else
-                Log.i(this.javaClass.toString(),
-                "---subtitle $url, id $id access: success")
-        }
-        thread.start()
-    }
-
-    // todo: follow redirects
-    private fun httpResponseCode(url: String): Int {
-        val request = Request.Builder()
-                .url(url)
-                .build()
-        return try {
-            val response = client.newCall(request).execute()
-            response.code
-        } catch (err: IOException) {
-            throw IOException(err.message)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        job0 = Job()
 
         // Create new StyleConfig
         val styleConfig = StyleConfig()
@@ -81,27 +57,23 @@ class MainActivity : AppCompatActivity() {
                             if (type == HttpRequestType.MediaSubtitles) {
                                 player.setSubtitle(subtitlesOffTrack)
                                 val url = request.url
-                                /* todo: to protect subtitlesQueue from
-                                 * concurrent access until
-                                 * the `pop()` and `setSubtitle()` methods
-                                 * return - the queue could be accessed from the
-                                 * `subtitleAdded` listener also.
-                                 */
-                                // `remove()` is `pop()`
-                                val id = subtitlesQueue.remove()
 
-                                player.setSubtitle(subtitlesOffTrack)
+                                launch {
+                                    lockSubtitlesQueue {
+                                        val id = this.remove()
+                                        Log.i(this.javaClass.name.toString(),
+                                                "---http request object received for subtitle id: $id, url: $url")
 
-                                Log.i(this.javaClass.name.toString(),
-                                        "---http request object received for subtitle id: $id, url: $url")
+                                        // concurrent http request:
+                                        verifySubtitle(url, id)
 
-                                // concurrent http request:
-                                verifySubtitle(url, id)
-
-                                if (subtitlesQueue.size != 0)
-                                    // `element()` is `read()`
-                                    player.setSubtitle(subtitlesQueue.element())
+                                        if (this.size != 0)
+                                        // `element()` is a read method
+                                            runOnUiThread {player.setSubtitle(subtitlesQueue.element())}
+                                    }
+                                }
                             }
+
                             //todo: cancel original http request?
                             return@PreprocessHttpRequestCallback null
                         }
@@ -137,8 +109,53 @@ class MainActivity : AppCompatActivity() {
 
         // Add the PlayerView to the layout as first position (so it is the behind the SubtitleView)
         playerContainer.addView(playerView, 0)
+    }
 
+    private suspend fun lockSubtitlesQueue(block: Queue<String>.() -> Unit) {
+        lockCollection.withLock { subtitlesQueue.block() }
+    }
 
+    private fun verifySubtitle(url: String, id: String) {
+        Log.i(this.javaClass.toString(), "---verify $url $id")
+        launch {
+            val code = async(Dispatchers.IO) { httpResponseCode(url) }
+            if (code.await() >= 400) {
+                Log.i(this.javaClass.toString(),
+                        "---received error code $code for subtitle $url, id $id - track will be removed")
+                runOnUiThread { player.removeSubtitle(id) }
+            } else
+                Log.i(this.javaClass.toString(),
+                        "---subtitle $url, id $id access: success")
+        }
+    }
+
+    // todo: follow redirects
+    private fun httpResponseCode(url: String): Int {
+        val request = Request.Builder()
+                .url(url)
+                .build()
+        return try {
+            val response = client.newCall(request).execute()
+            response.code
+        } catch (err: IOException) {
+            throw IOException(err.message)
+        }
+    }
+
+    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded? = null) {
+        val id = event?.subtitleTrack?.id
+        /* todo: protect the queue from concurrent access by the http
+         * request event handler
+         */
+        launch {
+            lockSubtitlesQueue {
+                subtitlesQueue.add(id)
+                if (subtitlesQueue.size == 1) player.setSubtitle(id)
+                Log.i(
+                        this.javaClass.name.toString(),
+                        "---subtitle added: $id")
+            }
+        }
     }
 
     override fun onStart() {
@@ -164,17 +181,5 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         playerView.onDestroy()
         super.onDestroy()
-    }
-
-    private fun onSubtitleAdded(event: SourceEvent.SubtitleAdded? = null) {
-        val id = event?.subtitleTrack?.id
-        /* todo: protect the queue from concurrent access by the http
-         * request event handler
-         */
-        subtitlesQueue.add(id)
-        if (subtitlesQueue.size == 1) player.setSubtitle(id)
-        Log.i(
-                this.javaClass.name.toString(),
-                "---subtitle added: $id")
     }
 }
