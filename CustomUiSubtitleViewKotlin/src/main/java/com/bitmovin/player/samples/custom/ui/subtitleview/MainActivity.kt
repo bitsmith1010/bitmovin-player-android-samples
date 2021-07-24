@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
 
                                 launch {
                                     lockSubtitlesQueue {
+                                        if (this.size != 0){
                                         val id = this.remove()
                                         Log.i(this.javaClass.name.toString(),
                                                 "---http request object received for subtitle id: $id, url: $url")
@@ -71,7 +72,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
                                         // `element()` is a read method
                                             runOnUiThread {player.setSubtitle(subtitlesQueue.element())}
                                     }
-                                }
+                                }}
                             }
 
                             //todo: cancel original http request?
@@ -91,7 +92,7 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
 
         player.on(SourceEvent.SubtitleAdded::class, ::onSubtitleAdded)
 
-        player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.mpd", SourceType.Dash))
+        player.load(SourceConfig("https://demo.unified-streaming.com/video/tears-of-steel/tears-of-steel-wvtt.ism/.mpd", SourceType.Dash))
 
         //player.load(SourceConfig("https://bitmovin-amer-public.s3.amazonaws.com/internal/dani/Wed_Apr_21_17%3A48%3A00_EDT_2021/zd7929-test1.m3u8", SourceType.Hls))
 
