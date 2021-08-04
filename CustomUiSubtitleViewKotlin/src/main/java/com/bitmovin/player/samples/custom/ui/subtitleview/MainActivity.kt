@@ -17,16 +17,16 @@ import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.util.*
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 class MainActivity : AppCompatActivity(), CoroutineScope {
-    private lateinit var job0: Job
-    override val coroutineContext: CoroutineContext
-        get() = job0 + Dispatchers.Main
+    override val coroutineContext: CoroutineContext = Job() + Dispatchers.Main
     private lateinit var player: Player
     private lateinit var playerView: PlayerView
     private lateinit var subtitleView: SubtitleView
@@ -34,13 +34,18 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
     private val subtitlesQueue: Queue<String> = LinkedList()
     private var subtitlesOffTrack = ""
 
-    var client = OkHttpClient()
+    private var timeSetSubtitle = 0L
+    private var totalTimeSetSubtitle = 0L
+    private var timeStart = System.currentTimeMillis()
+
+    private val client = OkHttpClient.Builder()
+      .connectionPool(ConnectionPool(
+        20, 5L, TimeUnit.MINUTES))
+      .build()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        job0 = Job()
 
         // Create new StyleConfig
         val styleConfig = StyleConfig()
@@ -53,31 +58,51 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
         var playerConfig = PlayerConfig().apply {
             networkConfig = NetworkConfig().apply {
                 preprocessHttpRequestCallback =
-                        PreprocessHttpRequestCallback { type, request ->
-                            if (type == HttpRequestType.MediaSubtitles) {
-                                player.setSubtitle(subtitlesOffTrack)
-                                val url = request.url
+                  PreprocessHttpRequestCallback { type, request ->
+                      if (type == HttpRequestType.MediaSubtitles) {
 
-                                launch {
-                                    lockSubtitlesQueue {
-                                        if (this.size != 0){
-                                        val id = this.remove()
-                                        Log.i(this.javaClass.name.toString(),
-                                                "---http request object received for subtitle id: $id, url: $url")
+                          totalTimeSetSubtitle +=
+                            System.currentTimeMillis() -
+                              timeSetSubtitle
+                          Log.i(
+                            this.javaClass.toString(),
+                            "---partial sum of setSubtitle() duration: $totalTimeSetSubtitle, url: ${request.url}")
 
-                                        // concurrent http request:
-                                        verifySubtitle(url, id)
+                          player.setSubtitle(subtitlesOffTrack)
+                          var url = request.url
+                          // test inaccessible url
+                          if (url.indexOf("textstream_eng") != -1
+                            || url.indexOf("textstream_spa") != -1)
+                              url += "now-inaccessible"
 
-                                        if (this.size != 0)
-                                        // `element()` is a read method
-                                            runOnUiThread {player.setSubtitle(subtitlesQueue.element())}
-                                    }
-                                }}
-                            }
+                          launch {
+                              lockSubtitlesQueue {
+                                  if (this.size != 0){
+                                      val id = this.remove()
+                                      Log.i(this.javaClass.name.toString(),
+                                        "---http request object received for subtitle id: $id, url: $url")
 
-                            //todo: cancel original http request?
-                            return@PreprocessHttpRequestCallback null
-                        }
+
+                                      // concurrent http request:
+                                      launch {
+                                          verifySubtitle(url, id)
+                                      }
+
+                                      if (this.size != 0)
+                                      // `element()` is a read method
+                                          runOnUiThread {
+                                              timeSetSubtitle =
+                                                System.currentTimeMillis()
+                                              player.setSubtitle(subtitlesQueue.element())
+
+                                          }
+                                  }
+                              }}
+                      }
+
+                      //todo: cancel original http request?
+                      return@PreprocessHttpRequestCallback null
+                  }
             }
         }
 
@@ -116,25 +141,25 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
         lockCollection.withLock { subtitlesQueue.block() }
     }
 
-    private fun verifySubtitle(url: String, id: String) {
+    private suspend fun verifySubtitle(url: String, id: String) {
         Log.i(this.javaClass.toString(), "---verify $url $id")
-        launch {
-            val code = async(Dispatchers.IO) { httpResponseCode(url) }
-            if (code.await() >= 400) {
-                Log.i(this.javaClass.toString(),
-                        "---received error code $code for subtitle $url, id $id - track will be removed")
-                runOnUiThread { player.removeSubtitle(id) }
-            } else
-                Log.i(this.javaClass.toString(),
-                        "---subtitle $url, id $id access: success")
-        }
+
+        val code = async(Dispatchers.IO) { httpResponseCode(url) }
+        if (isError(code.await())) {
+            Log.i(this.javaClass.toString(),
+              "---received error code $code for subtitle $url, id $id - track will be removed, time: ${System.currentTimeMillis() - timeStart}")
+            runOnUiThread { player.removeSubtitle(id) }
+        } else
+            Log.i(this.javaClass.toString(),
+              "---subtitle $url, id $id access: success, time: ${System.currentTimeMillis() - timeStart}")
+
     }
 
     // todo: follow redirects
     private fun httpResponseCode(url: String): Int {
         val request = Request.Builder()
-                .url(url)
-                .build()
+          .url(url)
+          .build()
         return try {
             val response = client.newCall(request).execute()
             response.code
@@ -151,12 +176,21 @@ class MainActivity : AppCompatActivity(), CoroutineScope {
         launch {
             lockSubtitlesQueue {
                 subtitlesQueue.add(id)
-                if (subtitlesQueue.size == 1) player.setSubtitle(id)
+                if (subtitlesQueue.size == 1) {
+                    timeSetSubtitle = System.currentTimeMillis()
+                    player.setSubtitle(id)
+                }
                 Log.i(
-                        this.javaClass.name.toString(),
-                        "---subtitle added: $id")
+                  this.javaClass.name.toString(),
+                  "---subtitle added: $id")
             }
         }
+    }
+
+    private fun isError(code: Int): Boolean
+    {
+        //todo: more accurate model of inaccessible URL
+        return code >= 400
     }
 
     override fun onStart() {
